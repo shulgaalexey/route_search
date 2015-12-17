@@ -1,9 +1,11 @@
 #include "route-search-demo.h"
+#include <maps_service.h>
 
 typedef struct appdata {
 	Evas_Object *win;
 	Evas_Object *conform;
 	Evas_Object *label;
+	maps_service_h maps; /* Handle of Maps Service */
 } appdata_s;
 
 static void
@@ -61,6 +63,86 @@ create_base_gui(appdata_s *ad)
 }
 
 static bool
+route_segment_maneuver_cb(int index, int total, maps_route_maneuver_h maneuver, void *user_data)
+{
+	char *route_info = (char *)user_data;
+	char *instruction_text = NULL;
+	const int max_line_len = 64;
+	const int half_line_len = max_line_len / 2;
+	char num[0x10] = {0};
+
+	maps_route_maneuver_get_instruction_text(maneuver, &instruction_text);
+	if(instruction_text && strlen(instruction_text)) {
+
+		/* Add Instruction number */
+		snprintf(num, 0x10, "</br> %d: ", index + 1);
+		strcat(route_info, num);
+
+		/* Add instruction text */
+		const int l = strlen(instruction_text);
+		if(l > max_line_len) { /* If the instruction is too long, lets extract the middle part */
+
+			/* Add the first part of the instruction */
+			char instruction_head[half_line_len + 1] = {0};
+			snprintf(instruction_head, half_line_len - 3, "%s", instruction_text);
+			strcat(route_info, instruction_head);
+
+			/* Add first and second parts separator */
+			strcat(route_info, "...");
+
+			/* Add the second part of the instruction */
+			char instruction_tail[half_line_len + 1] = {0};
+			snprintf(instruction_tail, half_line_len, "%s", instruction_text + l - half_line_len);
+			strcat(route_info, instruction_tail);
+		} else
+			/* Add whole instruction */
+			strcat(route_info, instruction_text);
+
+	}
+	free(instruction_text);
+	maps_route_maneuver_destroy(maneuver);
+	return true;
+}
+
+static bool
+route_segment_cb(int index, int total, maps_route_segment_h segment, void *user_data)
+{
+	maps_route_segment_foreach_maneuver	(segment, route_segment_maneuver_cb, user_data);
+	maps_route_segment_destroy(segment);
+	return true;
+}
+
+
+static bool
+search_route_cb(maps_error_e error, int request_id, int index, int total,
+		maps_route_h route, void* user_data)
+{
+	double distance = .0;
+	long duration = 0;
+	char route_info[0x1000] = {0};
+
+	maps_route_get_total_distance(route, &distance);
+	maps_route_get_total_duration(route, &duration);
+
+	snprintf(route_info, 0x1000, "Route duration %.0f min, length %.3f km",
+			ceil(1. * duration / 60), distance / 1000);
+
+	/* Bonus: printing list of maneuvers to achieve the destination */
+	maps_route_foreach_segment(route, route_segment_cb, route_info);
+
+	appdata_s *ad = user_data;
+	elm_object_text_set(ad->label, route_info);
+
+	/* Don't forget to release the route handle */
+   maps_route_destroy(route);
+
+   /* If return true, we will receive other routes,
+    * corresponding to our searching query parameters.
+    * In this example, first route is enough for us. */
+   return true;
+}
+
+static bool
 app_create(void *data)
 {
 	/* Hook to take necessary actions before main event loop starts
@@ -70,6 +152,30 @@ app_create(void *data)
 	appdata_s *ad = data;
 
 	create_base_gui(ad);
+
+	/* Specify Maps Provider name. */
+	if(maps_service_create("HERE", &ad->maps) != MAPS_ERROR_NONE)
+		return false;
+
+	/* Set security key, issued by Maps Provider */
+	maps_service_set_provider_key(ad->maps, "your-security-key");
+
+	/* Set distance units */
+	maps_preference_h preference = NULL;
+	maps_preference_create(&preference);
+	maps_preference_set_distance_unit(preference, MAPS_DISTANCE_UNIT_M);
+
+	int request_id = 0;
+	maps_coordinates_h origin = NULL, destination = NULL;
+	maps_coordinates_create(50.0734902, 14.4279653, &origin);
+	maps_coordinates_create(50.0860608,14.4145915, &destination);
+
+	/* Use Route API */
+	maps_service_search_route(ad->maps, origin, destination, preference, search_route_cb, ad, &request_id);
+
+	maps_coordinates_destroy(origin);
+	maps_coordinates_destroy(destination);
+	maps_preference_destroy(preference);
 
 	return true;
 }
@@ -96,6 +202,8 @@ static void
 app_terminate(void *data)
 {
 	/* Release all resources. */
+	appdata_s *ad = data;
+	maps_service_destroy(ad->maps);
 }
 
 static void

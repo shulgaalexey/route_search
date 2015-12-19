@@ -5,7 +5,7 @@
 ## What is the Route API?
 **Route API** provides a routing path from an origin to a destination.
 
-Reverse Geocode API is one of the Maps Services provided by the Tizen Native Location Framework.
+Route API is one of the Maps Services provided by the Tizen Native Location Framework.
 
 <img src="https://github.com/shulgaalexey/route_search/blob/master/doc/maps_service.png" alt="Tizen Native Maps Service API" style="width:500px"/>
 
